@@ -56,15 +56,34 @@ client.once('ready', async () => {
         .setName('contato')
         .setDescription('📱 Entre em contato com o desenvolvedor do bot');
 
+    const cargosCommand = new SlashCommandBuilder()
+        .setName('cargos-ticket')
+        .setDescription('Adiciona ou remove cargos que podem ver os tickets (Apenas Admins)')
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('adicionar')
+                .setDescription('Adiciona um cargo à lista de suporte')
+                .addRoleOption(option => option.setName('cargo').setDescription('Cargo que terá acesso').setRequired(true))
+        )
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('remover')
+                .setDescription('Remove um cargo da lista de suporte')
+                .addRoleOption(option => option.setName('cargo').setDescription('Cargo que perderá o acesso').setRequired(true))
+        );
+
     await client.application.commands.create(setupCommand);
     await client.application.commands.create(contatoCommand);
+    await client.application.commands.create(cargosCommand);
 });
 
 client.on('interactionCreate', async (interaction) => {
     
     if (interaction.isChatInputCommand()) {
+        
         if (interaction.commandName === 'setup') {
-            
             if (!interaction.guild) {
                 return interaction.reply({ content: '❌ Este comando só pode ser usado dentro de um servidor!' + CREDITO_TEXTO, ephemeral: true });
             }
@@ -159,6 +178,31 @@ client.on('interactionCreate', async (interaction) => {
                 ephemeral: true 
             });
         }
+
+        if (interaction.commandName === 'cargos-ticket') {
+            const subcommand = interaction.options.getSubcommand();
+            const cargo = interaction.options.getRole('cargo');
+            const guildRef = db.collection('guilds').doc(interaction.guild.id);
+
+            const guildDoc = await guildRef.get();
+            if (!guildDoc.exists) {
+                return interaction.reply({ content: '❌ Você precisa configurar o sistema primeiro usando o `/setup`.' + CREDITO_TEXTO, ephemeral: true });
+            }
+
+            if (subcommand === 'adicionar') {
+                await guildRef.update({
+                    supportRoles: admin.firestore.FieldValue.arrayUnion(cargo.id)
+                });
+                return interaction.reply({ content: `✅ O cargo ${cargo} foi **adicionado** e agora pode ver os novos tickets!`, ephemeral: true });
+            }
+
+            if (subcommand === 'remover') {
+                await guildRef.update({
+                    supportRoles: admin.firestore.FieldValue.arrayRemove(cargo.id)
+                });
+                return interaction.reply({ content: `✅ O cargo ${cargo} foi **removido** e não verá mais os novos tickets!`, ephemeral: true });
+            }
+        }
     }
 
     if (interaction.isButton() && interaction.customId === 'abrir_ticket') {
@@ -169,14 +213,25 @@ client.on('interactionCreate', async (interaction) => {
         
         const configs = guildDoc.data();
 
+        const permissoesCanal = [
+            { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+            { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles] },
+            { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] }
+        ];
+
+        if (configs.supportRoles && configs.supportRoles.length > 0) {
+            for (const roleId of configs.supportRoles) {
+                permissoesCanal.push({
+                    id: roleId,
+                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages]
+                });
+            }
+        }
+
         const channel = await interaction.guild.channels.create({
             name: `ticket-${interaction.user.username}`,
             type: ChannelType.GuildText,
-            permissionOverwrites: [
-                { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-                { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles] },
-                { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] }
-            ]
+            permissionOverwrites: permissoesCanal
         });
 
         await db.collection('tickets').doc(channel.id).set({
