@@ -45,21 +45,16 @@ const { FieldValue } = admin.firestore;
 
 const URL_FOTO_DEV = "https://avatars.githubusercontent.com/Antonizinhobr";
 
-// =====================================================================
-//  CONFIGURAÇÃO VISUAL — mude aqui textos, emojis, cor e imagens
-// =====================================================================
-// Emojis personalizados funcionam no formato "<:nome:ID>" (ou "<a:nome:ID>" se animado).
-// O bot precisa estar no servidor onde o emoji foi criado.
 const CONFIG = {
-  corDestaque: 0x1de9b6, // barra lateral verde-água dos containers
+  corDestaque: 0x1de9b6,
   segundosParaFechar: 3,
-  marca: null, // null = usa o nome do servidor (ex.: "🚀 Coding Bots ™")
-  prefixoCanal: "🎫・", // canal do ticket: 🎫・nomedousuario
-  prefixoCall: "📞・", // call do ticket:  📞・nomedousuario
+  marca: null,
+  prefixoCanal: "🎫・",
+  prefixoCall: "📞・",
 
   emojis: {
-    verificado: "☑️", // aparece no título do ticket e no rodapé
-    atendimento: "💬", // título do painel
+    verificado: "☑️",
+    atendimento: "💬",
     sucesso: "✅",
     aviso: "⚠️",
     relogio: "⏰",
@@ -81,7 +76,6 @@ const CONFIG = {
     placeholder: "Selecione a categoria do ticket",
   },
 
-  // Até 25 categorias. "valor" não pode ter espaços nem "_" e não deve mudar depois de usado.
   categorias: [
     {
       valor: "atendimento",
@@ -97,22 +91,17 @@ const CONFIG = {
     },
   ],
 
-  // Imagens padrão (também dá pra trocar por servidor com /config-ticket).
-  // Vazio = usa o banner do servidor (se tiver); a miniatura usa o ícone do servidor.
   imagens: {
-    painel: "", // banner do painel de abertura
-    fechamento: "", // banner da DM "Ticket Finalizado" (vazio = mesmo do painel)
-    thumbnail: "", // miniatura no canto da mensagem "Ticket Aberto por"
+    painel: "",
+    fechamento: "",
+    thumbnail: "",
   },
 };
 const E = CONFIG.emojis;
 
-// =====================================================================
-//  HELPERS
-// =====================================================================
 const V2 = MessageFlags.IsComponentsV2;
 const V2_EFEMERO = MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral;
-const fechando = new Set(); // canais que já estão sendo finalizados
+const fechando = new Set();
 
 const urlValida = (u) => typeof u === "string" && /^https?:\/\/\S+$/i.test(u.trim());
 const nomeMarca = (guild) => CONFIG.marca || guild.name;
@@ -153,8 +142,6 @@ async function getConfigs(guildId) {
   return doc.exists ? doc.data() : {};
 }
 
-// Cargos com acesso ao ticket: os gerais + os específicos da categoria.
-// Os mencionados são os da categoria (se houver) ou, senão, os gerais.
 function cargosDoTicket(configs, categoria) {
   const gerais = configs.supportRoles || [];
   const daCategoria = (configs.categoryRoles && configs.categoryRoles[categoria]) || [];
@@ -187,7 +174,6 @@ function imagensDoServidor(guild, configs) {
   };
 }
 
-// Procura um ticket aberto do usuário (e limpa registros de canais que já não existem)
 async function ticketAberto(guild, userId) {
   const snap = await db
     .collection("tickets")
@@ -203,9 +189,6 @@ async function ticketAberto(guild, userId) {
   return null;
 }
 
-// =====================================================================
-//  MENSAGENS (Components V2)
-// =====================================================================
 function montarPainel(guild, configs) {
   const P = CONFIG.painel;
   const { painel } = imagensDoServidor(guild, configs);
@@ -268,7 +251,6 @@ function montarMensagemTicket(guild, configs, ticket) {
     .addTextDisplayComponents(rodape(guild));
 }
 
-// Volta o menu de ações para "Selecione uma ação para o ticket" depois de cada uso
 async function resetarMenu(interaction, configs, ticket) {
   try {
     if (interaction.message.flags.has(MessageFlags.IsComponentsV2) && ticket && typeof ticket.motivo === "string") {
@@ -284,8 +266,6 @@ async function resetarMenu(interaction, configs, ticket) {
   }
 }
 
-// Envia uma mensagem V2 com o transcript anexado (invisível) e depois coloca o botão "Histórico"
-// apontando para esse anexo. Retorna a URL do histórico.
 async function enviarComHistorico(destino, transcript, montar) {
   if (!transcript) {
     await destino.send({ flags: V2, components: [montar(null)], allowedMentions: { parse: [] } });
@@ -302,13 +282,10 @@ async function enviarComHistorico(destino, transcript, montar) {
   return url;
 }
 
-// =====================================================================
-//  CLIENTE / COMANDOS
-// =====================================================================
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
   partials: [Partials.Message, Partials.Channel],
-  allowedMentions: { parse: [] }, // ninguém é marcado sem querer; as menções são liberadas mensagem a mensagem
+  allowedMentions: { parse: [] },
 });
 
 client.once(Events.ClientReady, async () => {
@@ -381,14 +358,10 @@ client.once(Events.ClientReady, async () => {
     .setName("contato")
     .setDescription("Entre em contato com o desenvolvedor do bot");
 
-  // set() substitui a lista inteira — o antigo /setup some automaticamente
   await client.application.commands.set([sendTicket, configTicket, cargosTicket, contato]);
   console.log(`Bot online como ${client.user.tag}`);
 });
 
-// =====================================================================
-//  INTERAÇÕES
-// =====================================================================
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) return await tratarComando(interaction);
@@ -409,9 +382,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
-// ---------------------------------------------------------------------
-//  Slash commands
-// ---------------------------------------------------------------------
 async function tratarComando(interaction) {
   const { commandName, guild } = interaction;
 
@@ -522,14 +492,9 @@ async function tratarComando(interaction) {
   }
 }
 
-// ---------------------------------------------------------------------
-//  Painel → escolha da categoria → modal
-// ---------------------------------------------------------------------
 async function tratarEscolhaCategoria(interaction) {
   const categoria = interaction.values[0];
 
-  // O Discord dá só 3s para abrir o modal: se o banco demorar, pula a checagem aqui
-  // (ela é refeita quando o modal é enviado).
   const aberto = await Promise.race([
     ticketAberto(interaction.guild, interaction.user.id).catch(() => null),
     new Promise((r) => setTimeout(() => r(null), 1500)),
@@ -554,9 +519,6 @@ async function tratarEscolhaCategoria(interaction) {
   await interaction.showModal(modal);
 }
 
-// ---------------------------------------------------------------------
-//  Modal enviado → cria o canal do ticket
-// ---------------------------------------------------------------------
 async function tratarAberturaTicket(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const { guild, user } = interaction;
@@ -629,9 +591,6 @@ async function tratarAberturaTicket(interaction) {
   });
 }
 
-// ---------------------------------------------------------------------
-//  Menu de ações do ticket
-// ---------------------------------------------------------------------
 async function tratarAcaoTicket(interaction) {
   const acao = interaction.values[0];
   const { guild, channel } = interaction;
@@ -654,7 +613,6 @@ async function tratarAcaoTicket(interaction) {
     return resetar();
   }
 
-  // ---------- Adicionar / Remover usuário ----------
   if (acao === "add_user" || acao === "rem_user") {
     const adicionar = acao === "add_user";
     const menu = new UserSelectMenuBuilder()
@@ -680,7 +638,6 @@ async function tratarAcaoTicket(interaction) {
     return resetar();
   }
 
-  // ---------- Criar call ----------
   if (acao === "create_call") {
     if (ticket.callId) {
       const existente =
@@ -722,7 +679,6 @@ async function tratarAcaoTicket(interaction) {
     });
   }
 
-  // ---------- Pokear ----------
   if (acao === "poke") {
     await interaction.reply({
       flags: V2,
@@ -750,12 +706,11 @@ async function tratarAcaoTicket(interaction) {
               .addTextDisplayComponents(rodape(guild)),
           ],
         })
-        .catch(() => {}); // DM fechada
+        .catch(() => {});
     }
     return;
   }
 
-  // ---------- Finalizar ----------
   if (acao === "finalizar") {
     if (fechando.has(channel.id)) {
       await interaction.reply({
@@ -796,7 +751,6 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
   const nomeUsuario = dono ? dono.username : ticket.userId;
   const imagens = imagensDoServidor(guild, configs);
 
-  // 1) Histórico (transcript)
   let transcript = null;
   try {
     const nomeArquivo = `transcript-${nomeUsuario.replace(/[^a-z0-9_-]/gi, "") || "ticket"}-${
@@ -812,7 +766,6 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
     console.error("Erro ao gerar transcript:", err);
   }
 
-  // 2) Log no canal de histórico
   let urlHistorico = null;
   if (configs.logsAtivos !== false && configs.logsChannel) {
     const logs = await guild.channels.fetch(configs.logsChannel).catch(() => null);
@@ -829,7 +782,6 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
     }
   }
 
-  // 3) DM para o autor
   if (dono) {
     const montarDM = (url) => {
       const c = container().addTextDisplayComponents(
@@ -849,16 +801,13 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
       if (urlHistorico || !transcript) {
         await dono.send({ flags: V2, components: [montarDM(urlHistorico)] });
       } else {
-        // Sem canal de logs: o histórico vai anexado na própria DM
         const dm = await dono.createDM();
         urlHistorico = await enviarComHistorico(dm, transcript, montarDM);
       }
     } catch {
-      // DM fechada
     }
   }
 
-  // 4) Banco de dados + call
   await ticketRef
     .update({ status: "fechado", closedAt: new Date(), closedBy: fechadoPor.id, transcriptUrl: urlHistorico })
     .catch(() => {});
@@ -869,9 +818,6 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
   }
 }
 
-// ---------------------------------------------------------------------
-//  Seleção de usuário (Adicionar / Remover)
-// ---------------------------------------------------------------------
 async function tratarSelecaoUsuario(interaction) {
   const adicionar = interaction.customId === "ticket_add_user";
   const { guild, channel } = interaction;
@@ -925,7 +871,6 @@ async function tratarSelecaoUsuario(interaction) {
   });
 }
 
-// Se apagarem o canal do ticket na mão, marca como fechado e apaga a call
 client.on(Events.ChannelDelete, async (channel) => {
   if (!channel.guild || channel.type !== ChannelType.GuildText) return;
   try {
