@@ -83,12 +83,6 @@ const CONFIG = {
       descricao: "Está com dúvidas? Receba suporte da nossa equipe.",
       emoji: "💬",
     },
-    {
-      valor: "parceria",
-      nome: "Solicitação de Parceria",
-      descricao: "Entre em contato para mais informações!",
-      emoji: "⭐",
-    },
   ],
 
   imagens: {
