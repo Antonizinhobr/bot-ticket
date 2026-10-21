@@ -5,6 +5,7 @@ const {
   GatewayIntentBits,
   Partials,
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
@@ -25,11 +26,17 @@ const {
   MediaGalleryItemBuilder,
   SeparatorBuilder,
   SeparatorSpacingSize,
+  FileBuilder,
   MessageFlags,
   InteractionContextType,
 } = require("discord.js");
 const admin = require("firebase-admin");
 const discordTranscripts = require("discord-html-transcripts");
+const zlib = require("zlib");
+const crypto = require("crypto");
+
+const HISTORICO_URL = (process.env.HISTORICO_URL || "").trim();
+const LIMITE_HISTORICO = 1_000_000;
 
 const serviceAccount = {
   projectId: process.env.FIREBASE_PROJECT_ID,
@@ -260,20 +267,33 @@ async function resetarMenu(interaction, configs, ticket) {
   }
 }
 
-async function enviarComHistorico(destino, transcript, montar) {
-  if (!transcript) {
-    await destino.send({ flags: V2, components: [montar(null)], allowedMentions: { parse: [] } });
-    return null;
+async function gerarHistorico(channel) {
+  const tipoTexto = discordTranscripts.ExportReturnType?.String || "string";
+  const base = { limit: -1, returnType: tipoTexto, poweredBy: false };
+
+  let html = await discordTranscripts.createTranscript(channel, { ...base, saveImages: true });
+  let gz = zlib.gzipSync(html, { level: 9 });
+  if (gz.length > LIMITE_HISTORICO) {
+    html = await discordTranscripts.createTranscript(channel, { ...base, saveImages: false });
+    gz = zlib.gzipSync(html, { level: 9 });
   }
-  const msg = await destino.send({
-    flags: V2,
-    components: [montar(null)],
-    files: [transcript],
-    allowedMentions: { parse: [] },
+  return { html, gz };
+}
+
+async function publicarHistorico({ gz, guild, ticket, channel }) {
+  if (!HISTORICO_URL || gz.length > LIMITE_HISTORICO) return null;
+  const id = crypto.randomBytes(18).toString("base64url");
+  await db.collection("transcripts").doc(id).set({
+    html: gz,
+    guildId: guild.id,
+    userId: ticket.userId,
+    canal: channel.name,
+    criadoEm: new Date(),
   });
-  const url = msg.attachments.first()?.url || null;
-  if (url) await msg.edit({ components: [montar(url)] });
-  return url;
+  const url = new URL(HISTORICO_URL);
+  url.searchParams.set("p", serviceAccount.projectId);
+  url.searchParams.set("id", id);
+  return url.toString();
 }
 
 const client = new Client({
@@ -745,61 +765,53 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
   const nomeUsuario = dono ? dono.username : ticket.userId;
   const imagens = imagensDoServidor(guild, configs);
 
-  let transcript = null;
+  const nomeArquivo = `transcript-${nomeUsuario.replace(/[^a-z0-9_-]/gi, "") || "ticket"}-${
+    ticket.codigo || channel.id
+  }.html`;
+  let historico = null;
   try {
-    const nomeArquivo = `transcript-${nomeUsuario.replace(/[^a-z0-9_-]/gi, "") || "ticket"}-${
-      ticket.codigo || channel.id
-    }.html`;
-    transcript = await discordTranscripts.createTranscript(channel, {
-      limit: -1,
-      filename: nomeArquivo,
-      saveImages: true,
-      poweredBy: false,
+    const { html, gz } = await gerarHistorico(channel);
+    const url = await publicarHistorico({ gz, guild, ticket, channel }).catch((err) => {
+      console.error("Erro ao salvar histórico no Firestore:", err);
+      return null;
     });
+    historico = { html, url };
   } catch (err) {
     console.error("Erro ao gerar transcript:", err);
   }
+  const urlHistorico = historico?.url || null;
 
-  let urlHistorico = null;
+  const comHistorico = (c) => {
+    if (!historico) return c;
+    if (historico.url) return c.addActionRowComponents(linha(botaoHistorico(historico.url)));
+    return c.addFileComponents(new FileBuilder().setURL(`attachment://${nomeArquivo}`));
+  };
+  const arquivos = () =>
+    historico && !historico.url ? [new AttachmentBuilder(Buffer.from(historico.html), { name: nomeArquivo })] : [];
+
   if (configs.logsAtivos !== false && configs.logsChannel) {
     const logs = await guild.channels.fetch(configs.logsChannel).catch(() => null);
     if (logs?.isTextBased()) {
       const textoLog = `${E.sucesso} **TICKET** de ${nomeUsuario} \`${ticket.userId}\` foi finalizado.`;
-      urlHistorico = await enviarComHistorico(logs, transcript, (url) => {
-        const c = caixa(textoLog);
-        if (url) c.addActionRowComponents(linha(botaoHistorico(url)));
-        return c;
-      }).catch((err) => {
-        console.error("Erro ao enviar log:", err);
-        return null;
-      });
+      await logs
+        .send({ flags: V2, components: [comHistorico(caixa(textoLog))], files: arquivos() })
+        .catch((err) => console.error("Erro ao enviar log:", err));
     }
   }
 
   if (dono) {
-    const montarDM = (url) => {
-      const c = container().addTextDisplayComponents(
-        texto(
-          `## ${E.sucesso} Ticket Finalizado\nOlá, **${
-            dono.globalName || dono.username
-          }**. Passando para te informar que o seu ticket foi fechado na **${nomeMarca(guild)}**.`
-        )
-      );
-      if (imagens.fechamento) c.addMediaGalleryComponents(galeria(imagens.fechamento));
-      if (url) c.addActionRowComponents(linha(botaoHistorico(url)));
-      c.addSeparatorComponents(separador()).addTextDisplayComponents(rodape(guild));
-      return c;
-    };
+    const c = container().addTextDisplayComponents(
+      texto(
+        `## ${E.sucesso} Ticket Finalizado\nOlá, **${
+          dono.globalName || dono.username
+        }**. Passando para te informar que o seu ticket foi fechado na **${nomeMarca(guild)}**.`
+      )
+    );
+    if (imagens.fechamento) c.addMediaGalleryComponents(galeria(imagens.fechamento));
+    comHistorico(c);
+    c.addSeparatorComponents(separador()).addTextDisplayComponents(rodape(guild));
 
-    try {
-      if (urlHistorico || !transcript) {
-        await dono.send({ flags: V2, components: [montarDM(urlHistorico)] });
-      } else {
-        const dm = await dono.createDM();
-        urlHistorico = await enviarComHistorico(dm, transcript, montarDM);
-      }
-    } catch {
-    }
+    await dono.send({ flags: V2, components: [c], files: arquivos() }).catch(() => {}); // DM fechada
   }
 
   await ticketRef
