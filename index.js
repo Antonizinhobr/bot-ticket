@@ -147,10 +147,16 @@ function gerarCodigo() {
   return codigo + Math.floor(1000 + Math.random() * 9000);
 }
 
+const cacheConfigs = new Map();
 async function getConfigs(guildId) {
+  const salvo = cacheConfigs.get(guildId);
+  if (salvo && salvo.expira > Date.now()) return salvo.dados;
   const doc = await db.collection("guilds").doc(guildId).get();
-  return doc.exists ? doc.data() : {};
+  const dados = doc.exists ? doc.data() : {};
+  cacheConfigs.set(guildId, { dados, expira: Date.now() + 60_000 });
+  return dados;
 }
+const limparCacheConfigs = (guildId) => cacheConfigs.delete(guildId);
 
 function cargosDoTicket(configs, categoria) {
   const gerais = configs.supportRoles || [];
@@ -443,6 +449,9 @@ client.once(Events.ClientReady, async () => {
 
   await client.application.commands.set([sendTicket, configTicket, cargosTicket, contato]);
   console.log(`Bot online como ${client.user.tag}`);
+
+  await Promise.all(client.guilds.cache.map((g) => getConfigs(g.id).catch(() => null)));
+  console.log("Conexão com o Firebase pronta");
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -473,10 +482,12 @@ async function tratarComando(interaction) {
     const configs = await getConfigs(guild.id);
     await interaction.channel.send({ flags: V2, components: [montarPainel(guild, configs)] });
     await db.collection("guilds").doc(guild.id).set({ panelChannel: interaction.channel.id }, { merge: true });
+    limparCacheConfigs(guild.id);
     return interaction.editReply(`${E.sucesso} Sistema de ticket criado com sucesso!`);
   }
 
   if (commandName === "config-ticket") {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const opt = interaction.options;
     const ref = db.collection("guilds").doc(guild.id);
     const updates = {};
@@ -498,13 +509,15 @@ async function tratarComando(interaction) {
       if (valor.trim().toLowerCase() === "remover") updates[campo] = FieldValue.delete();
       else if (urlValida(valor)) updates[campo] = valor.trim();
       else
-        return interaction.reply({
-          content: `${E.erro} A opção \`${opcao}\` precisa ser um link começando com http:// ou https://`,
-          flags: MessageFlags.Ephemeral,
-        });
+        return interaction.editReply(
+          `${E.erro} A opção \`${opcao}\` precisa ser um link começando com http:// ou https://`
+        );
     }
 
-    if (Object.keys(updates).length) await ref.set(updates, { merge: true });
+    if (Object.keys(updates).length) {
+      await ref.set(updates, { merge: true });
+      limparCacheConfigs(guild.id);
+    }
     const c = await getConfigs(guild.id);
 
     const cargos = (lista) => (lista && lista.length ? lista.map((r) => `<@&${r}>`).join(", ") : "Nenhum");
@@ -525,10 +538,11 @@ async function tratarComando(interaction) {
       `**Miniatura:** ${c.thumbnail || "Padrão (ícone do servidor)"}`,
     ].join("\n");
 
-    return interaction.reply({ flags: V2_EFEMERO, components: [caixa(resumo)] });
+    return interaction.editReply({ flags: V2, components: [caixa(resumo)] });
   }
 
   if (commandName === "cargos-ticket") {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const sub = interaction.options.getSubcommand();
     const cargo = interaction.options.getRole("cargo");
     const categoria = interaction.options.getString("categoria");
@@ -537,15 +551,14 @@ async function tratarComando(interaction) {
 
     if (categoria) await ref.set({ categoryRoles: { [categoria]: op } }, { merge: true });
     else await ref.set({ supportRoles: op }, { merge: true });
+    limparCacheConfigs(guild.id);
 
     const onde = categoria ? ` de **${categoriaInfo(categoria).nome}**` : "";
-    return interaction.reply({
-      content:
-        sub === "adicionar"
-          ? `${E.sucesso} O cargo ${cargo} foi adicionado e agora pode ver os novos tickets${onde}!`
-          : `${E.sucesso} O cargo ${cargo} foi removido e não verá mais os novos tickets${onde}!`,
-      flags: MessageFlags.Ephemeral,
-    });
+    return interaction.editReply(
+      sub === "adicionar"
+        ? `${E.sucesso} O cargo ${cargo} foi adicionado e agora pode ver os novos tickets${onde}!`
+        : `${E.sucesso} O cargo ${cargo} foi removido e não verá mais os novos tickets${onde}!`
+    );
   }
 
   if (commandName === "contato") {
@@ -677,9 +690,8 @@ async function tratarAberturaTicket(interaction) {
 async function tratarAcaoTicket(interaction) {
   const acao = interaction.values[0];
   const { guild, channel } = interaction;
-  const configs = await getConfigs(guild.id);
   const ticketRef = db.collection("tickets").doc(channel.id);
-  const snap = await ticketRef.get();
+  const [configs, snap] = await Promise.all([getConfigs(guild.id), ticketRef.get()]);
   const ticket = snap.exists ? snap.data() : null;
   const resetar = () => resetarMenu(interaction, configs, ticket);
 
@@ -858,7 +870,6 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
   const arquivos = () =>
     historico && !historico.url ? [new AttachmentBuilder(Buffer.from(historico.html), { name: nomeArquivo })] : [];
 
-  // 2) Log no canal de histórico
   if (configs.logsAtivos !== false && configs.logsChannel) {
     const logs = await guild.channels.fetch(configs.logsChannel).catch(() => null);
     if (logs?.isTextBased()) {
@@ -881,7 +892,7 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
     comHistorico(c);
     c.addSeparatorComponents(separador()).addTextDisplayComponents(rodape(guild));
 
-    await dono.send({ flags: V2, components: [c], files: arquivos() }).catch(() => {}); // DM fechada
+    await dono.send({ flags: V2, components: [c], files: arquivos() }).catch(() => {});
   }
 
   await ticketRef
@@ -897,9 +908,8 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
 async function tratarSelecaoUsuario(interaction) {
   const adicionar = interaction.customId === "ticket_add_user";
   const { guild, channel } = interaction;
-  const configs = await getConfigs(guild.id);
   const ticketRef = db.collection("tickets").doc(channel.id);
-  const snap = await ticketRef.get();
+  const [configs, snap] = await Promise.all([getConfigs(guild.id), ticketRef.get()]);
   const ticket = snap.exists ? snap.data() : null;
 
   const responder = (conteudo) => interaction.update({ components: [caixa(conteudo)] });
