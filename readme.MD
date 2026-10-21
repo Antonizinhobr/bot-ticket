@@ -1,816 +1,448 @@
-# Bot Ticket
+# 🎫 Bot de Tickets para Discord
 
-> Sistema completo de atendimento por tickets para servidores Discord, com canais privados, equipe de suporte, avaliação do atendimento, transcripts em HTML e persistência no Firebase Firestore.
+Bot de atendimento por tickets para Discord. Usa o visual novo de mensagens do Discord (Components V2) e guarda os dados no **Firebase (Firestore)**. Cada ticket gera um **histórico da conversa que abre direto no navegador**.
 
-[![Node.js](https://img.shields.io/badge/Node.js-CommonJS-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
-[![Discord.js](https://img.shields.io/badge/Discord.js-v14-5865F2?logo=discord&logoColor=white)](https://discord.js.org/)
-[![Firebase](https://img.shields.io/badge/Firebase-Admin%20SDK-FFCA28?logo=firebase&logoColor=111)](https://firebase.google.com/)
-[![Discloud](https://img.shields.io/badge/Deploy-Discloud-5865F2)](https://discloudbot.com/)
-
-O **Bot Ticket** automatiza o suporte dentro de um servidor Discord. Um administrador configura os canais do sistema, os usuários abrem tickets por botão, a equipe de atendimento assume os chamados e, ao final, o usuário avalia o atendimento. O bot salva os dados no Firestore e envia o histórico completo para o canal de logs.
+> Desenvolvido por **Anthonny Michael**. Use `/contato` no Discord para falar com o desenvolvedor.
 
 ---
 
-## Índice
+## 📑 Sumário
 
-- [Recursos](#recursos)
-
-- [Fluxo do atendimento](#fluxo-do-atendimento)
-
-- [Comandos](#comandos)
-
-- [Requisitos](#requisitos)
-
-- [Instalação local](#instala%C3%A7%C3%A3o-local)
-
-- [Configuração do Firebase](#configura%C3%A7%C3%A3o-do-firebase)
-
-- [Variáveis de ambiente](#vari%C3%A1veis-de-ambiente)
-
-- [Permissões do bot](#permiss%C3%B5es-do-bot)
-
-- [Estrutura do Firestore](#estrutura-do-firestore)
-
-- [Execução](#execu%C3%A7%C3%A3o)
-
-- [Deploy na Discloud](#deploy-na-discloud)
-
-- [Estrutura do projeto](#estrutura-do-projeto)
-
-- [Solução de problemas](#solu%C3%A7%C3%A3o-de-problemas)
-
-- [Segurança](#seguran%C3%A7a)
-
-- [Licença](#licen%C3%A7a)
-
-- [Autor](#autor)
+- [Funcionalidades](#-funcionalidades)
+- [Como funciona um ticket](#-como-funciona-um-ticket)
+- [Requisitos](#-requisitos)
+- [Estrutura de arquivos](#-estrutura-de-arquivos)
+- [1. Criar o bot no Discord](#1-criar-o-bot-no-discord)
+- [2. Configurar o Firebase](#2-configurar-o-firebase)
+- [3. Arquivo `.env`](#3-arquivo-env)
+- [4. Arquivo `package.json`](#4-arquivo-packagejson)
+- [5. Hospedar na Discloud](#5-hospedar-na-discloud)
+- [6. Configurar no servidor](#6-configurar-no-servidor)
+- [Comandos](#-comandos)
+- [Histórico dos tickets](#-histórico-dos-tickets)
+- [Personalização (`CONFIG`)](#-personalização-config)
+- [Banco de dados](#-banco-de-dados)
+- [Solução de problemas](#-solução-de-problemas)
 
 ---
 
-## Recursos
+## ✨ Funcionalidades
 
-- Painel de abertura de tickets por botão;
-
-- Criação automática de canais privados;
-
-- Acesso exclusivo ao usuário que abriu o ticket;
-
-- Acesso para o próprio bot;
-
-- Acesso configurável para cargos de suporte;
-
-- Canal separado para alertas de novos tickets;
-
-- Botão para um administrador assumir o chamado;
-
-- Registro do administrador responsável pelo atendimento;
-
-- Botão para finalizar o ticket;
-
-- Avaliação do atendimento pelo usuário;
-
-- Nota de atendimento de 0 a 10;
-
-- Geração automática de transcript HTML;
-
-- Preservação de imagens no transcript;
-
-- Envio do histórico para um canal de logs;
-
-- Registro de status, usuário, servidor, atendente, nota e horários no Firebase;
-
-- Comando de contato com o desenvolvedor;
-
-- Créditos automáticos nas mensagens e embeds;
-
-- Deploy preparado para Discloud;
-
-- Configuração persistida por servidor no Firestore.
+- **Painel de atendimento** com título, texto, banner e menu de categorias
+- **Formulário (modal)** para o usuário escrever o motivo do ticket, com até 4000 caracteres
+- **Canal privado por ticket** (`🎫・nomedousuario`), visível só para o autor, a equipe e o bot
+- **Mensagem do ticket fixada** com a categoria, o motivo, a miniatura do servidor e a menção do cargo da equipe
+- **Menu de ações da equipe:**
+  - 👤 **Adicionar Usuário:** dá acesso ao ticket para outra pessoa
+  - 🗑️ **Remover Usuário:** tira o acesso de quem foi adicionado
+  - 📞 **Criar Call:** cria um canal de voz vinculado ao ticket
+  - 🔔 **Pokear:** marca o autor no ticket e manda uma DM avisando
+  - 🟥 **Finalizar Ticket:** fecha o ticket, gera o histórico, registra no canal de logs e avisa o autor por DM
+- **Histórico em página web:** o botão 🔗 **Histórico** abre a conversa inteira no navegador
+- **Um ticket aberto por pessoa:** quem já tem ticket aberto recebe o link dele em vez de abrir outro
+- **Vários servidores:** cada servidor tem sua própria configuração de logs, categoria, cargos e imagens
+- **Cargos por categoria:** cargos gerais (veem todos os tickets) ou só de uma categoria
+- **Plano B do histórico:** se a biblioteca de histórico falhar, o bot gera uma página própria, mais simples
 
 ---
 
-## Fluxo do atendimento
+## 🔄 Como funciona um ticket
 
-```
-Administrador executa /setup
-          ↓
-Bot envia o painel de tickets
-          ↓
-Usuário clica em "Abrir Ticket"
-          ↓
-Bot cria um canal privado
-          ↓
-Equipe recebe alerta no canal administrativo
-          ↓
-Administrador clica em "Atender Chamado"
-          ↓
-Atendimento acontece no canal privado
-          ↓
-Administrador clica em "Finalizar Ticket"
-          ↓
-Usuário avalia o atendimento
-          ↓
-Bot gera transcript HTML
-          ↓
-Histórico é enviado ao canal de logs
-          ↓
-Ticket é salvo como fechado e o canal é excluído
-```
-
-### 1. Configuração
-
-Um administrador executa `/setup` e seleciona três canais:
-
-- Canal do painel;
-
-- Canal de alertas administrativos;
-
-- Canal de logs.
-
-O bot salva esses IDs no documento do servidor dentro da coleção `guilds`.
-
-### 2. Abertura
-
-O usuário clica no botão **Abrir Ticket**. O bot:
-
-1. Consulta a configuração do servidor;
-
-1. Cria um canal de texto chamado `ticket-nome-do-usuário`;
-
-1. Bloqueia a visualização para o servidor inteiro;
-
-1. Libera acesso para o usuário;
-
-1. Libera acesso para o bot;
-
-1. Libera acesso para os cargos de suporte configurados;
-
-1. Salva o ticket no Firestore;
-
-1. Envia um alerta no canal administrativo.
-
-### 3. Atendimento
-
-Um administrador ou membro com cargo de suporte pode assumir o chamado pelo botão **Atender Chamado**. Ao assumir:
-
-- O usuário é informado;
-
-- O administrador recebe acesso ao canal;
-
-- O ticket é marcado como `em_atendimento`;
-
-- O botão de atendimento é removido;
-
-- O responsável fica salvo no Firestore.
-
-### 4. Encerramento
-
-O administrador responsável ou um administrador do servidor pode iniciar a finalização. O usuário dono do ticket deve clicar em **Avaliar Atendimento** e enviar uma nota.
-
-Depois da avaliação, o bot:
-
-- Gera um transcript HTML completo;
-
-- Salva imagens quando possível;
-
-- Envia o transcript para o canal de logs;
-
-- Registra a nota no Firestore;
-
-- Marca o ticket como `fechado`;
-
-- Exclui o canal depois de alguns segundos.
+1. Um admin usa `/send-ticket` no canal de atendimento e o painel aparece.
+2. O membro escolhe a categoria no menu e preenche o motivo no formulário.
+3. O bot cria o canal `🎫・nomedousuario`, fixa a mensagem do ticket e avisa: *"Nossa equipe está ciente da sua necessidade…"*.
+4. A equipe atende e usa o menu **"Selecione uma ação para o ticket"** quando precisar.
+5. Ao escolher **Finalizar Ticket**:
+   - aparece *"⚠️ Fechamento do Ticket: este ticket será fechado em 3 segundos…"*
+   - o histórico da conversa é salvo
+   - o canal de logs recebe: `✅ TICKET de usuario 123456789 foi finalizado.` com o botão **🔗 Histórico**
+   - o autor recebe uma DM **"Ticket Finalizado"** com o banner e o botão **🔗 Histórico**
+   - a call do ticket, se existir, é apagada
+   - o canal do ticket é apagado
 
 ---
 
-## Comandos
+## 📋 Requisitos
 
-### `/setup`
+| Item | Versão / observação |
+|---|---|
+| Node.js | **20 ou superior** (recomendado 22+) |
+| discord.js | **14.19 ou superior** (abaixo disso o visual novo não funciona) |
+| Firebase | Projeto com **Firestore** ativado (o plano gratuito Spark serve) |
+| Discloud | Plano **Platinum ou superior** para usar o subdomínio do histórico |
+| Permissão do bot | **Administrador** no servidor |
 
-Configura o sistema de tickets no servidor.
+---
 
-**Permissão:** Administrador.
-
-**Opções obrigatórias:**
-
-| Opção | Descrição |
-| --- | --- |
-| `painel` | Canal onde o painel para abrir tickets será enviado |
-| `admin` | Canal que receberá alertas de novos tickets |
-| `logs` | Canal onde os transcripts e avaliações serão enviados |
-
-**Exemplo:**
+## 📁 Estrutura de arquivos
 
 ```
-/setup painel:#abrir-ticket admin:#suporte logs:#logs-tickets
+bot-ticket/
+├── index.js            # código do bot
+├── package.json        # dependências
+├── .env                # tokens e chaves (NUNCA compartilhe)
+├── discloud.config     # configuração da Discloud
+└── historico/
+    └── index.html      # (opcional) página do histórico para o GitHub Pages
 ```
 
-O comando salva uma configuração semelhante a:
+Se for usar Git, crie um `.gitignore`:
+
+```
+node_modules/
+.env
+```
+
+---
+
+## 1. Criar o bot no Discord
+
+1. Acesse o [Discord Developer Portal](https://discord.com/developers/applications) e clique em **New Application**.
+2. Na aba **Bot**:
+   - clique em **Reset Token** e copie o token (ele vai no `.env`)
+   - em **Privileged Gateway Intents**, ative a **Message Content Intent**. Sem ela o bot não liga e o histórico sai sem o texto das mensagens.
+3. Para convidar o bot, troque `SEU_CLIENT_ID` pelo **Application ID** (aba *General Information*) e abra:
+
+```
+https://discord.com/oauth2/authorize?client_id=SEU_CLIENT_ID&permissions=8&scope=bot%20applications.commands
+```
+
+> `permissions=8` = Administrador. O bot precisa disso para criar canais, mexer em permissões e fixar mensagens.
+
+---
+
+## 2. Configurar o Firebase
+
+1. Acesse o [Console do Firebase](https://console.firebase.google.com/) e crie um projeto (ou use um existente).
+2. Vá em **Firestore Database → Criar banco de dados**.
+3. Vá em **⚙️ Configurações do projeto → Contas de serviço → Gerar nova chave privada**. Isso baixa um arquivo `.json`.
+4. Do arquivo `.json`, você vai usar três campos no `.env`:
+
+| Campo no `.json` | Variável no `.env` |
+|---|---|
+| `project_id` | `FIREBASE_PROJECT_ID` |
+| `client_email` | `FIREBASE_CLIENT_EMAIL` |
+| `private_key` | `FIREBASE_PRIVATE_KEY` |
+
+> O bot usa o **Firebase Admin**, que ignora as regras de segurança do Firestore. Você só precisa mexer nas regras se for usar o histórico pelo **GitHub Pages** (veja [Histórico dos tickets](#-histórico-dos-tickets)).
+
+---
+
+## 3. Arquivo `.env`
+
+Crie um arquivo `.env` na mesma pasta do `index.js`:
+
+```env
+DISCORD_TOKEN=SEU_TOKEN_DO_BOT
+
+FIREBASE_PROJECT_ID=seu-projeto-firebase
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@seu-projeto-firebase.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSUA_CHAVE_PRIVADA_AQUI\n-----END PRIVATE KEY-----\n"
+
+HISTORICO_URL=https://seu-subdominio.discloud.app
+```
+
+| Variável | Para que serve |
+|---|---|
+| `DISCORD_TOKEN` | Token do bot (Developer Portal → Bot) |
+| `FIREBASE_PROJECT_ID` | ID do projeto do Firebase |
+| `FIREBASE_CLIENT_EMAIL` | E-mail da conta de serviço |
+| `FIREBASE_PRIVATE_KEY` | Chave privada. Cole **entre aspas** e mantenha os `\n` como estão no `.json` |
+| `HISTORICO_URL` | Onde o histórico abre no navegador (veja [Histórico dos tickets](#-histórico-dos-tickets)). Pode ficar vazio |
+
+> ⚠️ **Nunca** envie o `.env` para o GitHub nem mostre ele para ninguém. Quem tiver o token controla o seu bot.
+
+---
+
+## 4. Arquivo `package.json`
 
 ```json
 {
-  "panelChannel": "ID_DO_CANAL_PAINEL",
-  "adminChannel": "ID_DO_CANAL_ADMIN",
-  "logsChannel": "ID_DO_CANAL_LOGS"
+  "name": "bot-ticket",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord-html-transcripts": "^3.3.0",
+    "discord.js": "^14.22.0",
+    "dotenv": "^17.0.0",
+    "firebase-admin": "^13.0.0"
+  }
 }
 ```
 
-> Executar `/setup` novamente atualiza a configuração e envia um novo painel no canal selecionado.
-
----
-
-### `/cargos-ticket adicionar`
-
-Adiciona um cargo à lista de suporte.
-
-**Permissão:** Administrador.
-
-```
-/cargos-ticket adicionar cargo:@Suporte
-```
-
-Membros com esse cargo poderão visualizar e responder aos novos tickets.
-
-### `/cargos-ticket remover`
-
-Remove um cargo da lista de suporte.
-
-**Permissão:** Administrador.
-
-```
-/cargos-ticket remover cargo:@Suporte
-```
-
-O sistema precisa ter sido configurado com `/setup` antes de adicionar ou remover cargos.
-
-### `/contato`
-
-Exibe um embed privado com informações e links de contato do desenvolvedor:
-
-- Instagram;
-
-- TikTok;
-
-- LinkedIn;
-
-- GitHub;
-
-- Discord.
-
-A resposta é enviada de forma efêmera, visível apenas para quem executou o comando.
-
----
-
-## Requisitos
-
-- Node.js 18 ou superior recomendado;
-
-- npm;
-
-- Aplicação criada no [Discord Developer Portal](https://discord.com/developers/applications);
-
-- Bot adicionado ao servidor;
-
-- Token do bot;
-
-- Firebase habilitado;
-
-- Firestore habilitado;
-
-- Conta de serviço ou credenciais do Firebase Admin;
-
-- Permissões suficientes para criar canais, editar permissões e enviar arquivos.
-
-Verifique as versões instaladas:
-
-```bash
-node --version
-npm --version
-```
-
----
-
-## Instalação local
-
-Clone o repositório:
-
-```bash
-git clone https://github.com/Antonizinhobr/bot-ticket.git
-cd bot-ticket
-```
-
-Instale as dependências:
+Para instalar no seu computador:
 
 ```bash
 npm install
+npm start
 ```
 
-O projeto utiliza CommonJS:
-
-```json
-{
-  "main": "index.js",
-  "type": "commonjs"
-}
-```
-
-Inicie o bot com:
-
-```bash
-node index.js
-```
+> Atualize o discord.js com `npm i discord.js@14`, e **não** com `@latest`, que pode instalar uma versão futura incompatível.
 
 ---
 
-## Configuração do Firebase
+## 5. Hospedar na Discloud
 
-O bot utiliza o Firebase Admin SDK para salvar configurações e histórico dos tickets.
+### 5.1 Criar o subdomínio
 
-### 1. Criar o projeto
+No painel da Discloud, vá na aba **Domains → + Create Subdomain** e escolha um nome (até 20 caracteres: letras, números e hífen). Exemplo: `seu-subdominio`.
 
-1. Acesse o [Firebase Console](https://console.firebase.google.com/);
+### 5.2 `discloud.config`
 
-1. Crie um projeto ou escolha um existente;
-
-1. Acesse **Firestore Database**;
-
-1. Crie o banco de dados;
-
-1. Gere credenciais para uma conta de serviço.
-
-### 2. Credenciais utilizadas
-
-O código espera três variáveis:
-
-```
-FIREBASE_PROJECT_ID=seu-project-id
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@seu-project-id.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSUA_CHAVE\n-----END PRIVATE KEY-----\n"
-```
-
-A chave privada é convertida pelo código para o formato correto:
-
-```
-privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-```
-
-### 3. Arquivo `.env`
-
-Crie um arquivo `.env` na raiz do projeto:
-
-```
-DISCORD_TOKEN=seu_token_do_bot
-FIREBASE_PROJECT_ID=seu-project-id
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@seu-project-id.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nSUA_CHAVE\n-----END PRIVATE KEY-----\n"
-```
-
-O pacote `dotenv` carrega automaticamente essas variáveis quando o processo começa.
-
-> Nunca publique o `.env`, o token do Discord ou a chave privada do Firebase no GitHub.
-
----
-
-## Variáveis de ambiente
-
-| Variável | Obrigatória | Finalidade |
-| --- | --- | --- |
-| `DISCORD_TOKEN` | Sim | Token utilizado para conectar o bot ao Discord |
-| `FIREBASE_PROJECT_ID` | Sim | ID do projeto Firebase |
-| `FIREBASE_CLIENT_EMAIL` | Sim | E-mail da conta de serviço |
-| `FIREBASE_PRIVATE_KEY` | Sim | Chave privada da conta de serviço |
-
-Exemplo de `.env.example`:
-
-```
-DISCORD_TOKEN=
-FIREBASE_PROJECT_ID=
-FIREBASE_CLIENT_EMAIL=
-FIREBASE_PRIVATE_KEY=""
-```
-
----
-
-## Permissões do bot
-
-O bot precisa ser convidado com permissões compatíveis com o sistema. Na prática, são necessárias permissões para:
-
-- Ver canais;
-
-- Enviar mensagens;
-
-- Ler histórico de mensagens;
-
-- Gerenciar canais;
-
-- Gerenciar permissões de canais;
-
-- Incorporar links;
-
-- Anexar arquivos;
-
-- Usar comandos de aplicação;
-
-- Ver membros, conforme a configuração do servidor.
-
-O código utiliza estas intents:
-
-```
-GatewayIntentBits.Guilds
-GatewayIntentBits.GuildMessages
-GatewayIntentBits.MessageContent
-```
-
-No Discord Developer Portal, habilite o **Message Content Intent** caso ele seja exigido pela configuração da aplicação.
-
-O bot também precisa estar acima dos cargos de suporte na hierarquia do servidor quando a configuração de permissões exigir isso.
-
----
-
-## Estrutura do Firestore
-
-O bot usa principalmente duas coleções:
-
-```
-guilds
-└── ID_DO_SERVIDOR
-
-tickets
-└── ID_DO_CANAL_DO_TICKET
-```
-
-### Coleção `guilds`
-
-O ID do documento é o ID do servidor Discord.
-
-Exemplo:
-
-```json
-{
-  "panelChannel": "ID_DO_CANAL_PAINEL",
-  "adminChannel": "ID_DO_CANAL_ADMIN",
-  "logsChannel": "ID_DO_CANAL_LOGS",
-  "supportRoles": [
-    "ID_DO_CARGO_SUPORTE_1",
-    "ID_DO_CARGO_SUPORTE_2"
-  ]
-}
-```
-
-### Campos de `guilds`
-
-| Campo | Tipo | Descrição |
-| --- | --- | --- |
-| `panelChannel` | string | Canal onde o painel é enviado |
-| `adminChannel` | string | Canal de alertas administrativos |
-| `logsChannel` | string | Canal dos transcripts |
-| `supportRoles` | array de strings | IDs dos cargos autorizados a ver tickets |
-
-### Coleção `tickets`
-
-O ID do documento é o ID do canal criado para o ticket.
-
-Exemplo durante o atendimento:
-
-```json
-{
-  "userId": "ID_DO_USUARIO",
-  "guildId": "ID_DO_SERVIDOR",
-  "adminId": "ID_DO_ATENDENTE",
-  "status": "em_atendimento",
-  "openedAt": "Timestamp"
-}
-```
-
-Exemplo após a avaliação:
-
-```json
-{
-  "userId": "ID_DO_USUARIO",
-  "guildId": "ID_DO_SERVIDOR",
-  "adminId": "ID_DO_ATENDENTE",
-  "status": "fechado",
-  "nota": "10",
-  "openedAt": "Timestamp"
-}
-```
-
-### Estados do ticket
-
-| Status | Significado |
-| --- | --- |
-| `pendente` | Ticket aberto e aguardando atendimento |
-| `em_atendimento` | Um administrador assumiu o chamado |
-| `fechado` | Atendimento avaliado e histórico gerado |
-
----
-
-## Execução
-
-Inicie o processo com:
-
-```bash
-node index.js
-```
-
-Quando conectar corretamente, o console informa algo semelhante a:
-
-```
-✅ Bot online como NomeDoBot#0000
-```
-
-Os comandos são registrados quando o evento `ready` é executado.
-
-> Como o código registra os comandos usando `client.application.commands.create(...)`, eles são comandos globais. A propagação de comandos globais pode levar algum tempo no Discord.
-
----
-
-## Deploy na Discloud
-
-O repositório possui a seguinte configuração:
-
-```
+```properties
 NAME=BotTicket
-TYPE=bot
+TYPE=site
+ID=seu-subdominio
 MAIN=index.js
-RAM=100
+RAM=512
 AUTORESTART=true
 VERSION=latest
 APT=tools
 ```
 
-### Passos
+| Campo | Explicação |
+|---|---|
+| `NAME` | Nome do app no painel |
+| `TYPE=site` | Libera o subdomínio. O bot roda normal **e** serve as páginas de histórico |
+| `ID` | Nome do subdomínio criado no passo 5.1, **sem** o `.discloud.app` |
+| `MAIN` | Arquivo principal |
+| `RAM` | Mínimo **512** para apps do tipo site |
+| `AUTORESTART` | Reinicia sozinho se cair (Platinum+) |
+| `VERSION` | Versão do ambiente |
+| `APT` | Pacotes extras do sistema |
 
-1. Faça login na Discloud;
+### 5.3 Enviar
 
-1. Crie uma aplicação do tipo bot;
-
-1. Envie os arquivos do projeto;
-
-1. Configure as variáveis de ambiente;
-
-1. Confirme que `index.js` é o arquivo principal;
-
-1. Inicie ou reinicie a aplicação;
-
-1. Consulte os logs até aparecer a mensagem de bot online.
-
-Variáveis que precisam ser configuradas no painel da Discloud:
+Compacte `index.js`, `package.json`, `.env` e `discloud.config` (sem a pasta `node_modules`) e envie pela Discloud. Nos logs do app devem aparecer estas linhas:
 
 ```
-DISCORD_TOKEN=seu_token
-FIREBASE_PROJECT_ID=seu_projeto
-FIREBASE_CLIENT_EMAIL=seu_email_de_servico
-FIREBASE_PRIVATE_KEY="sua_chave_com_\\n"
+Site do histórico ligado na porta 8080
+Bot online como NomeDoBot#0000
+Conexão com o Firebase pronta
 ```
 
-A configuração atual usa:
-
-```
-RAM=100
-AUTORESTART=true
-```
-
-Se o Puppeteer não é utilizado neste bot, a configuração `APT=tools` pode permanecer conforme o arquivo atual, mas não é uma dependência funcional central do projeto.
+> Deixe **só um app** rodando com esse token. Dois bots com o mesmo token causam o erro `Unknown interaction`.
 
 ---
 
-## Estrutura do projeto
+## 6. Configurar no servidor
 
-```
-.
-├── .gitignore
-├── discloud.config
-├── index.js
-├── package.json
-├── package-lock.json
-└── .env                 # local, não publicar
-```
+Faça na ordem, com uma conta de **Administrador**:
 
-O arquivo principal concentra:
+1. **Canal de logs e categoria dos tickets:**
+   ```
+   /config-ticket logs:#logs-tickets categoria:Tickets
+   ```
+2. **Cargo da equipe** (vê e atende todos os tickets):
+   ```
+   /cargos-ticket adicionar cargo:@Equipe
+   ```
+3. **(Opcional) Imagens:**
+   ```
+   /config-ticket imagem-painel:https://link-da-imagem.png imagem-fechamento:https://link-da-imagem.png
+   ```
+4. **Enviar o painel** no canal de abertura de tickets:
+   ```
+   /send-ticket
+   ```
 
-- Inicialização do Discord client;
-
-- Inicialização do Firebase Admin;
-
-- Registro dos slash commands;
-
-- Interações de botões;
-
-- Interações de modal;
-
-- Criação de canais;
-
-- Atualizações do Firestore;
-
-- Geração e envio de transcripts;
-
-- Login do bot.
+Para ver a configuração atual, use `/config-ticket` sem nenhuma opção.
 
 ---
 
-## Solução de problemas
+## 🧭 Comandos
 
-### O bot não conecta
+Todos os comandos (menos o `/contato`) são **só para administradores**.
 
-Verifique:
+### `/send-ticket`
+Cria o painel de tickets no canal atual. **Rode de novo** sempre que mudar o texto, as categorias ou a imagem do painel, e apague o painel antigo.
 
-- `DISCORD_TOKEN` está correto;
+### `/config-ticket`
+Configura o sistema neste servidor. Todas as opções são opcionais. Sem nenhuma, o comando só mostra a configuração atual.
 
-- o token não expirou ou foi regenerado;
+| Opção | O que faz |
+|---|---|
+| `logs` | Canal onde os tickets finalizados são registrados |
+| `logs-ativos` | Liga ou desliga o registro no canal de logs |
+| `categoria` | Categoria onde os canais de ticket são criados |
+| `imagem-painel` | Banner do painel (link PNG, JPG ou GIF). Escreva `remover` para tirar |
+| `imagem-fechamento` | Banner da DM "Ticket Finalizado". Escreva `remover` para tirar |
+| `thumbnail` | Miniatura da mensagem "Ticket Aberto por". Escreva `remover` para tirar |
 
-- o bot foi convidado ao servidor;
+Imagens padrão, quando não configuradas:
+- **Painel:** banner do servidor (se tiver)
+- **Fechamento:** a mesma imagem do painel
+- **Miniatura:** ícone do servidor
 
-- a aplicação não está desativada;
+### `/cargos-ticket adicionar | remover`
 
-- os logs da hospedagem não indicam erro de intent.
+| Opção | O que faz |
+|---|---|
+| `cargo` | Cargo que vai ganhar ou perder acesso aos tickets |
+| `categoria` | (Opcional) Vale só para essa categoria. Vazio = todos os tickets |
 
-Se o token foi exposto, gere um novo imediatamente no Discord Developer Portal.
+Quem pode usar o menu de ações: **administradores** e os **cargos cadastrados** (gerais ou da categoria do ticket). O autor do ticket **não** usa o menu, a não ser que também seja da equipe.
 
-### Os comandos não aparecem
+O cargo marcado na mensagem do ticket é o cargo da categoria, se houver um. Se não houver, são os cargos gerais.
 
-Os comandos são registrados globalmente no evento `ready`. Aguarde a sincronização do Discord e confirme que:
-
-- o bot possui o escopo `applications.commands`;
-
-- o bot está no servidor correto;
-
-- o processo chegou ao evento `ready`;
-
-- o token corresponde à aplicação esperada.
-
-### `/setup` não envia o painel
-
-Confirme que o bot possui permissão para:
-
-- ver o canal;
-
-- enviar mensagens;
-
-- incorporar links;
-
-- usar componentes interativos.
-
-Também confirme que os três canais selecionados são acessíveis pelo bot.
-
-### O ticket não é criado
-
-Verifique:
-
-- se `/setup` já foi executado no servidor;
-
-- se o bot pode criar canais;
-
-- se o bot pode gerenciar permissões;
-
-- se o limite de canais do servidor não foi atingido;
-
-- se o Firestore está acessível.
-
-### O usuário não consegue abrir o ticket
-
-Confira se o canal criado recebeu as permissões para:
-
-- visualizar o canal;
-
-- enviar mensagens;
-
-- anexar arquivos.
-
-### O transcript não aparece nos logs
-
-Confira:
-
-- se o canal de logs está correto no Firestore;
-
-- se o bot consegue enviar arquivos;
-
-- se o bot ainda consegue acessar o canal;
-
-- se a biblioteca `discord-html-transcripts` foi instalada;
-
-- se o transcript não ultrapassou limites de tamanho do Discord.
-
-### Erro no Firebase
-
-Confirme todas as credenciais:
-
-```
-FIREBASE_PROJECT_ID
-FIREBASE_CLIENT_EMAIL
-FIREBASE_PRIVATE_KEY
-```
-
-A chave privada deve manter as quebras de linha representadas como `\\n` dentro da variável de ambiente.
+### `/contato`
+Mostra as redes sociais do desenvolvedor.
 
 ---
 
-## Segurança
+## 📜 Histórico dos tickets
 
-- Nunca publique `DISCORD_TOKEN`;
+Quando um ticket é finalizado, o bot gera a página da conversa, compacta e salva no Firestore, na coleção `transcripts`. O link do botão **🔗 Histórico** depende do `HISTORICO_URL`:
 
-- Nunca publique `FIREBASE_PRIVATE_KEY`;
+| `HISTORICO_URL` | Como o histórico abre |
+|---|---|
+| `https://seu-subdominio.discloud.app` | **(Recomendado)** O próprio bot serve a página em `https://seu-subdominio.discloud.app/historico/CODIGO` |
+| `https://seu-usuario.github.io/historico-tickets/` | A página `historico/index.html` no GitHub Pages lê o histórico direto do Firestore |
+| *(vazio)* | O histórico vai como **arquivo `.html`** para baixar, no log e na DM |
 
-- Não versione o arquivo `.env`;
+- Cada histórico tem um código aleatório impossível de adivinhar, então só abre quem tem o link.
+- O link **não expira**.
+- Se a conversa tiver muitas imagens e passar de ~1 MB, o bot refaz o histórico sem embutir as imagens.
 
-- Se uma credencial for exposta, faça a rotação imediatamente;
+### Opção GitHub Pages (sem plano Platinum)
 
-- Restrinja as permissões da conta de serviço quando possível;
-
-- Dê ao bot somente as permissões necessárias;
-
-- Mantenha o bot acima dos cargos que ele precisa gerenciar;
-
-- Revise as permissões dos canais de tickets;
-
-- Evite colocar dados sensíveis nos transcripts;
-
-- Limite quem pode usar `/setup` e `/cargos-ticket`.
-
-As verificações administrativas dos comandos são reforçadas por:
-
-```
-.setDefaultMemberPermissions(PermissionsBitField.Flags.Administrator)
-```
-
-Mesmo assim, as permissões do servidor e a hierarquia do Discord continuam sendo importantes.
-
----
-
-## Observações técnicas
-
-### Mensagens efêmeras
-
-As respostas de configuração, contato e alguns erros são enviadas como efêmeras. Isso mantém informações administrativas fora do canal público.
-
-### Transcripts
-
-O histórico é gerado com:
-
-```
-createTranscript(interaction.channel, {
-  limit: -1,
-  filename: `ticket-${interaction.channel.name}.html`,
-  saveImages: true
-});
-```
-
-O limite `-1` indica que o bot tenta incluir todo o histórico disponível do canal.
-
-### Fechamento automático
-
-Depois da avaliação e do envio dos logs, o canal é excluído após alguns segundos:
-
-```
-setTimeout(() => interaction.channel.delete().catch(() => {}), 4000);
-```
-
-### Validação da nota
-
-O campo informa ao usuário que a nota deve estar entre 0 e 10. Para reforçar essa regra no código, recomenda-se validar numericamente o valor antes de salvar:
-
-```
-const notaNumerica = Number(nota);
-
-if (!Number.isInteger(notaNumerica) || notaNumerica < 0 || notaNumerica > 10) {
-  return interaction.editReply('A nota precisa ser um número inteiro entre 0 e 10.');
-}
-```
+1. Crie um repositório público, por exemplo `historico-tickets`, e envie o arquivo `historico/index.html`.
+2. Em **Settings → Pages**, escolha a Branch `main` e salve.
+3. No Firestore, vá em **Regras** e adicione dentro de `match /databases/{database}/documents { ... }`:
+   ```
+   match /transcripts/{id} {
+     allow get: if true;
+   }
+   ```
+4. No `.env`:
+   ```env
+   HISTORICO_URL=https://seu-usuario.github.io/historico-tickets/
+   ```
 
 ---
 
-## Licença
+## 🎨 Personalização (`CONFIG`)
 
-O `package.json` atual declara a licença:
+No começo do `index.js` fica o bloco `CONFIG`. Tudo o que é visual se muda ali. Essas mudanças valem para **todos os servidores** que usam o bot.
 
+```js
+const CONFIG = {
+  corDestaque: 0x1de9b6,      // cor da barra lateral das mensagens (hex com 0x na frente)
+  segundosParaFechar: 3,      // tempo até apagar o canal ao finalizar
+  marca: null,                // null = usa o nome do servidor no rodapé e na DM
+  prefixoCanal: "🎫・",       // canal do ticket: 🎫・nomedousuario
+  prefixoCall: "📞・",        // call do ticket:  📞・nomedousuario
+  emojis: { ... },            // emojis usados nas mensagens e no menu
+  painel: { ... },            // título, texto, citação e placeholder do painel
+  categorias: [ ... ],        // opções do menu do painel
+  imagens: { ... },           // imagens padrão (links)
+};
 ```
-ISC
+
+### Emojis personalizados
+
+Troque qualquer emoji em `CONFIG.emojis` pelo formato `<:nome:ID>`, ou `<a:nome:ID>` se for animado. Para descobrir o código, digite `\:nomedoemoji:` em qualquer canal do Discord e envie.
+
+```js
+verificado: "<:verificado:123456789012345678>",
 ```
 
-Consulte o mantenedor antes de redistribuir ou modificar o projeto para uso em produção.
+> O bot precisa estar no servidor de onde o emoji é. Em outros servidores, o cargo do bot precisa da permissão **Usar emojis externos**.
+
+### Textos do painel
+
+```js
+painel: {
+  titulo: "Canal de Atendimento",
+  texto: "Para receber **SUPORTE** ou tirar **DÚVIDAS**, por favor, selecione uma das opções no menu abaixo.",
+  citacao: "Nossa equipe está pronta para ajudar assim que possível.",
+  placeholder: "Selecione a categoria do ticket",
+},
+```
+
+### Adicionar uma categoria
+
+Adicione um objeto em `categorias` (até 25):
+
+```js
+categorias: [
+  {
+    valor: "atendimento",
+    nome: "Solicitação de Atendimento",
+    descricao: "Está com dúvidas? Receba suporte da nossa equipe.",
+    emoji: "💬",
+  },
+  {
+    valor: "denuncia",
+    nome: "Denúncia",
+    descricao: "Denuncie um membro ou situação.",
+    emoji: "🚨",
+  },
+],
+```
+
+- `valor`: identificador interno, **sem espaços nem `_`**. Não mude depois de usar, porque os cargos por categoria ficam ligados a ele.
+- `nome`: o que aparece no menu e no ticket (até 100 caracteres).
+- `descricao`: texto menor embaixo do nome (até 100 caracteres).
+
+Depois de mudar, reinicie o bot e rode `/send-ticket` de novo.
 
 ---
 
-## Links
+## 💾 Banco de dados
 
-- [Repositório do bot](https://github.com/Antonizinhobr/bot-ticket)
+O bot cria e usa três coleções no Firestore:
 
-- [Discord.js](https://discord.js.org/)
+**`guilds/{idDoServidor}`**: configuração de cada servidor
 
-- [Firebase Admin SDK](https://firebase.google.com/docs/admin/setup)
+| Campo | Conteúdo |
+|---|---|
+| `logsChannel` | ID do canal de logs |
+| `logsAtivos` | `true` / `false` |
+| `categoryChannel` | ID da categoria dos tickets |
+| `supportRoles` | Lista de cargos gerais |
+| `categoryRoles` | Cargos por categoria (`{ atendimento: [...] }`) |
+| `imagemPainel`, `imagemFechamento`, `thumbnail` | Links das imagens |
+| `panelChannel` | Último canal onde o painel foi enviado |
 
-- [Cloud Firestore](https://firebase.google.com/docs/firestore)
+**`tickets/{idDoCanal}`**: cada ticket
 
-- [Discord Developer Portal](https://discord.com/developers/applications)
+| Campo | Conteúdo |
+|---|---|
+| `userId`, `guildId` | Autor e servidor |
+| `status` | `aberto` / `fechado` |
+| `categoria`, `motivo`, `codigo` | Dados da abertura |
+| `openedAt`, `closedAt`, `closedBy` | Datas e quem finalizou |
+| `mensagemId`, `callId` | Mensagem fixada e call do ticket |
+| `transcriptUrl` | Link do histórico |
 
-- [Discloud](https://discloudbot.com/)
+**`transcripts/{codigoAleatorio}`**: históricos (HTML compactado), com `guildId`, `userId`, `canal` e `criadoEm`.
 
-- [discord-html-transcripts](https://www.npmjs.com/package/discord-html-transcripts)
+> Mudanças feitas pelos comandos valem na hora. Se editar algo direto no console do Firebase, pode levar até 60 segundos para o bot perceber.
+
+O tópico de cada canal de ticket segue o formato `idDoUsuario|CODIGO|categoria`.
 
 ---
 
-## Autor
+## 🔧 Solução de problemas
 
-Desenvolvido por [Anthonny Michael](https://github.com/Antonizinhobr).
+| Problema | Causa / solução |
+|---|---|
+| Bot não liga: `Used disallowed intents` | Ative a **Message Content Intent** no Developer Portal (passo 1) |
+| `DiscordAPIError[10062]: Unknown interaction` | Tem **dois bots rodando com o mesmo token** (app antigo na Discloud ou no seu PC). Deixe só um |
+| `Missing Permissions` | Dê **Administrador** ao cargo do bot |
+| Histórico não abre / site fora do ar | Confira `TYPE=site`, o `ID` igual ao subdomínio, `RAM=512` e a linha `Site do histórico ligado na porta 8080` nos logs |
+| Página mostra **"Sem permissão"** | Modo GitHub Pages: falta a regra do Firestore (veja [Opção GitHub Pages](#opção-github-pages-sem-plano-platinum)) |
+| Log mostra `usando o histórico simples` | A biblioteca de histórico falhou e o bot usou o plano B. O histórico continua sendo gerado, só que mais simples |
+| Botão **Histórico** não aparece | Veja se o `HISTORICO_URL` está no `.env`. Se estiver vazio, o histórico vai como arquivo `.html` |
+| Painel antigo continua igual | Apague o painel e rode `/send-ticket` de novo |
+| Emoji aparece como `:nome:` | O bot não está no servidor do emoji, ou falta a permissão **Usar emojis externos** |
+| Erro com o `FIREBASE_PRIVATE_KEY` | Coloque a chave **entre aspas** e mantenha os `\n` |
+| "Você já possui um ticket aberto" | O usuário já tem um ticket. Ele recebe o link do ticket que está aberto |
 
-Use o comando `/contato` dentro do bot para acessar os canais oficiais de contato.
+---
+
+<p align="center">Feito com 💚 por <b>Anthonny Michael</b> · <a href="https://github.com/Antonizinhobr">GitHub</a></p>
