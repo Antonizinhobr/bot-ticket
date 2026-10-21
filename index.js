@@ -305,6 +305,15 @@ async function resetarMenu(interaction, configs, ticket) {
   }
 }
 
+async function resetarPainel(interaction) {
+  try {
+    const configs = await getConfigs(interaction.guild.id);
+    await interaction.message.edit({ components: [montarPainel(interaction.guild, configs)] });
+  } catch (err) {
+    console.error("Erro ao resetar o painel:", err);
+  }
+}
+
 async function gerarHistorico(channel) {
   const tipoTexto = discordTranscripts.ExportReturnType?.String || "string";
   const base = { limit: -1, returnType: tipoTexto, poweredBy: false };
@@ -706,30 +715,34 @@ async function tratarComando(interaction) {
 }
 
 async function tratarEscolhaCategoria(interaction) {
-  const categoria = interaction.values[0];
+  try {
+    const categoria = interaction.values[0];
 
-  const aberto = await Promise.race([
-    ticketAberto(interaction.guild, interaction.user.id).catch(() => null),
-    new Promise((r) => setTimeout(() => r(null), 1500)),
-  ]);
-  if (aberto) {
-    return interaction.reply({
-      content: `${E.erro} Você já possui um ticket aberto: <#${aberto}>`,
-      flags: MessageFlags.Ephemeral,
-    });
+    const aberto = await Promise.race([
+      ticketAberto(interaction.guild, interaction.user.id).catch(() => null),
+      new Promise((r) => setTimeout(() => r(null), 1500)),
+    ]);
+    if (aberto) {
+      return await interaction.reply({
+        content: `${E.erro} Você já possui um ticket aberto: <#${aberto}>`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    const modal = new ModalBuilder().setCustomId(`modal_motivo_${categoria}`).setTitle("Abrir Ticket - Motivo");
+    const motivoInput = new TextInputBuilder()
+      .setCustomId("motivo_texto")
+      .setLabel("Descreva o motivo do seu ticket")
+      .setStyle(TextInputStyle.Paragraph)
+      .setPlaceholder("Ex: Estou com um problema de acesso...")
+      .setMaxLength(4000)
+      .setRequired(true);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(motivoInput));
+    await interaction.showModal(modal);
+  } finally {
+    await resetarPainel(interaction);
   }
-
-  const modal = new ModalBuilder().setCustomId(`modal_motivo_${categoria}`).setTitle("Abrir Ticket - Motivo");
-  const motivoInput = new TextInputBuilder()
-    .setCustomId("motivo_texto")
-    .setLabel("Descreva o motivo do seu ticket")
-    .setStyle(TextInputStyle.Paragraph)
-    .setPlaceholder("Ex: Estou com um problema de acesso...")
-    .setMaxLength(4000)
-    .setRequired(true);
-
-  modal.addComponents(new ActionRowBuilder().addComponents(motivoInput));
-  await interaction.showModal(modal);
 }
 
 async function tratarAberturaTicket(interaction) {
