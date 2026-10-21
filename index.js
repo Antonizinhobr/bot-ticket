@@ -1,4 +1,27 @@
 require("dotenv").config();
+
+(function usarUmReactSo() {
+  const Module = require("module");
+  const path = require("path");
+  let base;
+  try {
+    const entrada = require.resolve("discord-html-transcripts");
+    const pasta = path.sep + "discord-html-transcripts" + path.sep;
+    base = entrada.slice(0, entrada.lastIndexOf(pasta) + pasta.length);
+  } catch {
+    return;
+  }
+  const resolverOriginal = Module._resolveFilename;
+  Module._resolveFilename = function (request, parent, isMain, options) {
+    if (/^react(-dom)?(\/|$)/.test(request)) {
+      try {
+        return resolverOriginal.call(this, request, parent, isMain, { ...options, paths: [base] });
+      } catch {}
+    }
+    return resolverOriginal.call(this, request, parent, isMain, options);
+  };
+})();
+
 const {
   Client,
   Events,
@@ -285,14 +308,108 @@ async function resetarMenu(interaction, configs, ticket) {
 async function gerarHistorico(channel) {
   const tipoTexto = discordTranscripts.ExportReturnType?.String || "string";
   const base = { limit: -1, returnType: tipoTexto, poweredBy: false };
+  const comprimir = (html) => zlib.gzipSync(html, { level: 9 });
 
-  let html = await discordTranscripts.createTranscript(channel, { ...base, saveImages: true });
-  let gz = zlib.gzipSync(html, { level: 9 });
-  if (gz.length > LIMITE_HISTORICO) {
-    html = await discordTranscripts.createTranscript(channel, { ...base, saveImages: false });
-    gz = zlib.gzipSync(html, { level: 9 });
+  try {
+    let html = await discordTranscripts.createTranscript(channel, { ...base, saveImages: true });
+    let gz = comprimir(html);
+    if (gz.length > LIMITE_HISTORICO) {
+      html = await discordTranscripts.createTranscript(channel, { ...base, saveImages: false });
+      gz = comprimir(html);
+    }
+    return { html, gz };
+  } catch (err) {
+    console.error("O discord-html-transcripts falhou, usando o histórico simples:", err?.message || err);
+    const html = historicoSimples(channel, await buscarMensagens(channel));
+    return { html, gz: comprimir(html) };
   }
-  return { html, gz };
+}
+
+async function buscarMensagens(channel, maximo = 5000) {
+  const todas = [];
+  let antes;
+  while (todas.length < maximo) {
+    const lote = await channel.messages.fetch({ limit: 100, ...(antes ? { before: antes } : {}) });
+    if (!lote.size) break;
+    todas.push(...lote.values());
+    antes = lote.last().id;
+    if (lote.size < 100) break;
+  }
+  return todas.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+}
+
+function textosDosComponentes(componentes, saida = []) {
+  for (const c of componentes || []) {
+    if (c.type === 10 && c.content) saida.push(c.content);
+    if (c.components) textosDosComponentes(c.components, saida);
+  }
+  return saida;
+}
+
+function historicoSimples(channel, mensagens) {
+  const esc = (s) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const guild = channel.guild;
+
+  const formatar = (texto) => {
+    let t = String(texto)
+      .replace(/<@!?(\d+)>/g, (_, id) => `@${guild.members.cache.get(id)?.displayName || client.users.cache.get(id)?.username || "usuário"}`)
+      .replace(/<@&(\d+)>/g, (_, id) => `@${guild.roles.cache.get(id)?.name || "cargo"}`)
+      .replace(/<#(\d+)>/g, (_, id) => `#${guild.channels.cache.get(id)?.name || "canal"}`)
+      .replace(/<a?:(\w+):\d+>/g, ":$1:")
+      .replace(/<t:(\d+)(?::\w)?>/g, (_, s) => new Date(Number(s) * 1000).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }));
+    t = esc(t)
+      .replace(/^-# (.*)$/gm, '<span class="sub">$1</span>')
+      .replace(/^#{1,3} (.*)$/gm, "<strong>$1</strong>")
+      .replace(/^&gt; (.*)$/gm, '<span class="cit">$1</span>')
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+    return t;
+  };
+
+  const blocos = mensagens.map((m) => {
+    const nome = m.member?.displayName || m.author.globalName || m.author.username;
+    const hora = m.createdAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    const extras = [
+      ...m.embeds.map((e) => [e.title, e.description, ...(e.fields || []).map((f) => `${f.name}\n${f.value}`)].filter(Boolean).join("\n")),
+      ...textosDosComponentes(m.components),
+    ].filter(Boolean);
+    const anexos = [...m.attachments.values()]
+      .map((a) =>
+        a.contentType?.startsWith("image/")
+          ? `<a href="${esc(a.url)}" target="_blank"><img class="img" src="${esc(a.url)}" alt="${esc(a.name)}"></a>`
+          : `<a class="arq" href="${esc(a.url)}" target="_blank">📎 ${esc(a.name)}</a>`
+      )
+      .join("");
+    if (!m.content && !extras.length && !anexos) return "";
+    const conteudo = m.content ? `<div class="txt">${formatar(m.content)}</div>` : "";
+    const quadro = extras.length ? `<div class="quadro">${extras.map((t) => `<div class="txt">${formatar(t)}</div>`).join("")}</div>` : "";
+    return `<div class="msg"><img class="av" src="${esc(m.author.displayAvatarURL({ size: 64, extension: "png" }))}" alt="">
+<div class="corpo"><div class="topo"><span class="nome">${esc(nome)}</span>${m.author.bot ? '<span class="app">APP</span>' : ""}<span class="hora">${esc(hora)}</span></div>
+${conteudo}${quadro}${anexos}</div></div>`;
+  });
+
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>${esc(channel.name)}</title><style>
+*{box-sizing:border-box}body{margin:0;background:#313338;color:#dbdee1;font:15px/1.4 "gg sans","Noto Sans","Helvetica Neue",Helvetica,Arial,sans-serif}
+header{display:flex;gap:14px;align-items:center;padding:20px 16px;background:#2b2d31;border-bottom:1px solid #1f2023}
+header img{width:56px;height:56px;border-radius:12px}header h1{margin:0;font-size:20px;color:#f2f3f5}header p{margin:2px 0 0;color:#b5bac1;font-size:14px;word-break:break-all}
+main{max-width:1000px;margin:0 auto;padding:8px 0 24px}.msg{display:flex;gap:14px;padding:8px 16px}.msg:hover{background:#2e3035}
+.av{width:40px;height:40px;border-radius:50%;flex:none}.corpo{min-width:0;flex:1}.topo{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.nome{font-weight:600;color:#f2f3f5}.app{background:#5865f2;color:#fff;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px}
+.hora{color:#949ba4;font-size:12px}.txt{white-space:pre-wrap;word-wrap:break-word;margin-top:2px}
+.quadro{margin-top:4px;padding:10px 12px;max-width:620px;background:#2b2d31;border-left:4px solid #1de9b6;border-radius:4px}.quadro .txt+.txt{margin-top:8px}
+.sub{font-size:12px;color:#949ba4}.cit{display:inline-block;border-left:4px solid #4e5058;padding-left:8px}
+code{background:#1e1f22;padding:1px 4px;border-radius:4px;font-size:13px}
+.img{display:block;max-width:min(400px,100%);border-radius:8px;margin-top:6px}.arq{display:inline-block;margin-top:6px;color:#00a8fc}
+footer{text-align:center;color:#949ba4;font-size:12px;padding:16px}
+</style></head><body>
+<header>${guild.iconURL() ? `<img src="${esc(guild.iconURL({ size: 128, extension: "png" }))}" alt="">` : ""}<div>
+<h1>${esc(guild.name)}</h1><p>#${esc(channel.name)}${channel.topic ? ` · ${esc(channel.topic)}` : ""}</p></div></header>
+<main>${blocos.join("\n")}</main>
+<footer>${mensagens.length} mensagens exportadas · horário de Brasília</footer>
+</body></html>`;
 }
 
 async function publicarHistorico({ gz, guild, ticket, channel }) {
