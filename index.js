@@ -34,9 +34,18 @@ const admin = require("firebase-admin");
 const discordTranscripts = require("discord-html-transcripts");
 const zlib = require("zlib");
 const crypto = require("crypto");
+const http = require("http");
 
 const HISTORICO_URL = (process.env.HISTORICO_URL || "").trim();
 const LIMITE_HISTORICO = 1_000_000;
+const HISTORICO_GITHUB = (() => {
+  try {
+    return new URL(HISTORICO_URL).hostname.endsWith("github.io");
+  } catch {
+    return false;
+  }
+})();
+const SITE_PROPRIO = Boolean(HISTORICO_URL) && !HISTORICO_GITHUB;
 
 const serviceAccount = {
   projectId: process.env.FIREBASE_PROJECT_ID,
@@ -290,10 +299,70 @@ async function publicarHistorico({ gz, guild, ticket, channel }) {
     canal: channel.name,
     criadoEm: new Date(),
   });
+  return linkHistorico(id);
+}
+
+function linkHistorico(id) {
   const url = new URL(HISTORICO_URL);
-  url.searchParams.set("p", serviceAccount.projectId);
-  url.searchParams.set("id", id);
+  if (HISTORICO_GITHUB) {
+    url.searchParams.set("p", serviceAccount.projectId);
+    url.searchParams.set("id", id);
+  } else {
+    url.pathname = url.pathname.replace(/\/?$/, "/") + "historico/" + id;
+  }
   return url.toString();
+}
+
+function paginaAviso(titulo, detalhe) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>${esc(titulo)}</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;background:#313338;color:#dbdee1;
+font-family:"gg sans","Noto Sans","Helvetica Neue",Helvetica,Arial,sans-serif}
+.caixa{width:100%;max-width:420px;padding:28px 24px;border-radius:8px;background:#2b2d31;border-left:4px solid #1de9b6;text-align:center}
+h1{margin:0 0 6px;font-size:18px;color:#f2f3f5}p{margin:0;font-size:14px;line-height:1.5;color:#b5bac1}
+</style></head><body><div class="caixa"><h1>${esc(titulo)}</h1><p>${esc(detalhe)}</p></div></body></html>`;
+}
+
+function iniciarSiteHistorico() {
+  const porta = Number(process.env.PORT) || 8080;
+  const responder = (res, status, html, extra = {}) => {
+    res.writeHead(status, {
+      "Content-Type": "text/html; charset=utf-8",
+      "X-Robots-Tag": "noindex, nofollow",
+      "Referrer-Policy": "no-referrer",
+      ...extra,
+    });
+    res.end(html);
+  };
+
+  const servidor = http.createServer(async (req, res) => {
+    try {
+      if (req.method !== "GET" && req.method !== "HEAD") return responder(res, 405, paginaAviso("Método não permitido", ""));
+      const url = new URL(req.url, "http://localhost");
+      if (url.pathname === "/favicon.ico") return responder(res, 204, "");
+
+      const id = url.pathname.match(/^\/historico\/([A-Za-z0-9_-]{10,64})\/?$/)?.[1] || url.searchParams.get("id");
+      if (!id) {
+        if (url.pathname === "/") return responder(res, 200, paginaAviso("Histórico de tickets", "Abra o link de um ticket para ver a conversa."));
+        return responder(res, 404, paginaAviso("Página não encontrada", "Confira o link e tente de novo."));
+      }
+      if (!/^[A-Za-z0-9_-]{10,64}$/.test(id)) return responder(res, 404, paginaAviso("Link inválido", "Este link de histórico está incompleto."));
+
+      const doc = await db.collection("transcripts").doc(id).get();
+      if (!doc.exists) return responder(res, 404, paginaAviso("Histórico não encontrado", "Ele pode ter sido apagado."));
+
+      const html = zlib.gunzipSync(doc.data().html).toString("utf8");
+      return responder(res, 200, req.method === "HEAD" ? "" : html, { "Cache-Control": "private, max-age=300" });
+    } catch (err) {
+      console.error("Erro no site do histórico:", err);
+      return responder(res, 500, paginaAviso("Erro ao carregar", "Tente abrir o link de novo em instantes."));
+    }
+  });
+
+  servidor.on("error", (err) => console.error("O site do histórico não iniciou:", err.message));
+  servidor.listen(porta, "0.0.0.0", () => console.log(`Site do histórico ligado na porta ${porta}`));
 }
 
 const client = new Client({
@@ -789,6 +858,7 @@ async function finalizarTicket({ guild, channel, configs, ticket, ticketRef, fec
   const arquivos = () =>
     historico && !historico.url ? [new AttachmentBuilder(Buffer.from(historico.html), { name: nomeArquivo })] : [];
 
+  // 2) Log no canal de histórico
   if (configs.logsAtivos !== false && configs.logsChannel) {
     const logs = await guild.channels.fetch(configs.logsChannel).catch(() => null);
     if (logs?.isTextBased()) {
@@ -890,5 +960,7 @@ client.on(Events.ChannelDelete, async (channel) => {
     console.error(err);
   }
 });
+
+if (SITE_PROPRIO) iniciarSiteHistorico();
 
 client.login(process.env.DISCORD_TOKEN);
