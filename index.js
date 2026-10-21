@@ -71,7 +71,7 @@ const CONFIG = {
   painel: {
     titulo: "Canal de Atendimento",
     texto:
-      "Para receber **SUPORTE**, tirar **DÚVIDAS** ou realizar uma **COMPRA**, por favor, selecione uma das opções no menu abaixo.",
+      "Para receber **SUPORTE** ou tirar **DÚVIDAS**, por favor, selecione uma das opções no menu abaixo.",
     citacao: "Nossa equipe está pronta para ajudar assim que possível.",
     placeholder: "Selecione a categoria do ticket",
   },
